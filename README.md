@@ -29,6 +29,6 @@ he dataset used in this analysis is not publicly available due to patient privac
 
 However:
 
-All analysis code is fully reproducible
-Variable names and workflow reflect real clinical data
-The pipeline can be applied to similar survival datasets
+- All analysis code is fully reproducible
+- Variable names and workflow reflect real clinical data
+- The pipeline can be applied to similar survival datasets
