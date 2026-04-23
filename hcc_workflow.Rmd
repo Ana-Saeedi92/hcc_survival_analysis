@@ -1,0 +1,1672 @@
+
+---
+title: "HCC Survival Analysis"
+author: "Ana Saeedi"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 6
+)
+```
+
+# Overview
+
+This R Markdown document restructures the original HCC survival analysis script into a report format so the code, tables, model output, and plots can all be shown together after knitting.
+
+# Load required packages
+
+```{r packages}
+# install.packages("labelled")
+# install.packages("gmodels")
+# install.packages("survminer")
+# install.packages("survRM2")
+
+library(haven)    
+library(dplyr)    
+library(survival)
+library(survminer)
+library(labelled)  
+library(readr)     
+library(scales)
+library(forcats)
+library(gmodels)
+library(stringr)
+library(tibble)
+library(lubridate)
+```
+
+# Import dataset
+
+```{r import-data}
+file_path <- "C:/Users/saeeda1/OneDrive - UMass Chan Medical School/Documents/independent study/cancer project/HCC_4_6_SASPrep.sas7bdat"
+
+chart_data <- read_sas(file_path)
+glimpse(chart_data)
+
+hcc_data <- read_sas(file_path)
+```
+
+# Data preparation
+
+## Rename selected variables
+
+```{r rename-vars}
+chart_data <- hcc_data %>%
+  mutate(
+    residual_recurrence = residual_reccurence,
+    date_ldt1 = date_LTD1,
+    n_hcc_tx_ldt1 = n_hcc_tx_LTD1
+  ) %>%
+  select(-residual_reccurence, -date_LTD1, -n_hcc_tx_LTD1)
+```
+
+## Apply variable labels
+
+```{r variable-labels}
+var_labels <- c(
+  unique_id = "Unique ID",
+  study_id = "Study ID",
+  unique = "Unique Patient",
+  age_first_SBRT = "Age first SBRT",
+  Milan_criteria = "Inside Milan",
+  pvtt = "PVTT",
+  etiology_1 = "Etiology 1",
+  etiology_2 = "Etiology 2",
+  ascites = "Ascites",
+  listed = "Listed",
+  n_tumor_LDT1 = "No. Tumors LDT1",
+  date_LTD1 = "Date LDT1",
+  n_hcc_tx_LTD1 = "No. HCC tumor tx LDT1",
+  type_LDT1 = "Type LDT1",
+  size_tx_lesion = "Size Tx Lesion",
+  date_LDT2 = "Date LDT2",
+  type_LDT2 = "Type LDT2",
+  date_LDT3 = "Date LDT3",
+  type_LDT3 = "Type LDT3",
+  date_LDT4 = "Date LDT4",
+  type_LDT4 = "Type LDT4",
+  prior_LDT = "No. prior LDTs",
+  date_last_LDT = "Date last LDT",
+  last_LDT = "Last LDT",
+  Desc_Salv_Consol = "SBRT Description",
+  n_hcc__time_sbrt = "No. HCC tumors at SBRT",
+  n_hcc_tx_sbrt = "No. HCC tumors treated SBRT",
+  hcc_size_sbrt = "Size of SBRT treated lesion",
+  cp_prior_group = "CP Group",
+  afp_prior_sbrt = "AFP Prior to SBRT",
+  td = "TD",
+  n_fx = "No. Fx",
+  eqd2 = "EQD2",
+  sbrt_start = "SBRT Start",
+  sbrt_end = "SBRT End",
+  gtv = "GTV Vol",
+  itv = "ITV Vol",
+  ptv = "PTV Vol",
+  mld = "MLD",
+  afp_1_mo_after = "AFP 1 mo after SBRT",
+  cp_comp_base_6_mo = "CP comparision baseline-6 months",
+  cp_miss_data = "CP comparision missing data",
+  gd_3_tx = "Gr3+ tox",
+  elpd = "ELPD",
+  elpd_date = "Date ELPD",
+  dm = "DM",
+  dm_date = "Date DM",
+  lc_censor = "LC Censor Date (after SBRT)",
+  lc_time = "LC Time (days)",
+  lc_censor_reason = "LC Censor Reason",
+  resp = "Response to SBRT at censor",
+  radio_resp = "Radiographic Respose",
+  path_resp = "Path response",
+  transplant = "Transplant",
+  os_censor = "OS Censor Date",
+  os_censor_reason = "OS Censor Reason",
+  os_cmt_salv = "OS (CMT/salv (T0 date LDT1)",
+  residual_reccurence = "Salvage only",
+  cmt_diag_test = "CMT Diagnostic Test before SBRT"
+)
+
+chart_data <- set_variable_labels(hcc_data, !!!var_labels)
+```
+
+## Optional CSV export
+
+```{r export-csv}
+write_csv(chart_data, "C:/Users/saeeda1/OneDrive - UMass Chan Medical School/Documents/independent study/cancer project/HCC_4_6_SASPrep.csv")
+```
+
+## Recode factors
+
+```{r recode-factors}
+chart_data <- chart_data %>%
+  mutate(
+    Milan_criteria = factor(Milan_criteria, levels = c(0, 1), labels = c("No", "Yes")),
+    pvtt = factor(pvtt, levels = c(0, 1), labels = c("No", "Yes")),
+    ascites = factor(ascites, levels = c(0, 1), labels = c("No", "Yes")),
+    listed = factor(listed, levels = c("0", "1"), labels = c("No", "Yes")),
+    elpd = factor(elpd, levels = c(0, 1), labels = c("No", "Yes")),
+    dm = factor(dm, levels = c(0, 1), labels = c("No", "Yes")),
+    transplant = factor(transplant, levels = c(0, 1), labels = c("No", "Yes")),
+    Desc_Salv_Consol = factor(Desc_Salv_Consol, levels = c(1, 2), labels = c("Salvage", "Consolidate/CMV")),
+    cp_prior_group = factor(cp_prior_group, levels = c(1, 2), labels = c("A", "B/C")),
+    cp_comp_base_6_mo = factor(cp_comp_base_6_mo, levels = c(0, 1, 2, 3),
+                               labels = c("Missing", "Progression", "Stable", "Improve")),
+    cp_miss_data = factor(cp_miss_data, levels = c(4, 5, 6),
+                          labels = c("Deceased", "Transplant", "Short F/U")),
+    gd_3_tx = factor(gd_3_tx, levels = c(0, 1, 3), labels = c("No", "Yes", "Unknown")),
+    residual_reccurence = factor(residual_reccurence, levels = c(1, 2, 3),
+                                 labels = c("Residual", "Recurrence", "Not included")),
+    cmt_diag_test = factor(cmt_diag_test, levels = c(0, 1, 3),
+                           labels = c("No", "Yes", "Not included")),
+    etiology_1 = factor(etiology_1, levels = 1:9,
+                        labels = c("HCV", "ETOH", "HBV", "IC", "NASH", "Hemo", "Autoimmune", "PBC", "Other")),
+    etiology_2 = factor(etiology_2, levels = 1:9,
+                        labels = c("HCV", "ETOH", "HBV", "IC", "NASH", "Hemo", "Autoimmune", "PBC", "Other"))
+  )
+```
+
+## Create first-record-per-patient dataset
+
+```{r patient-level}
+studyid_wise <- chart_data %>%
+  arrange(study_id) %>%
+  group_by(study_id) %>%
+  slice(1) %>%
+  ungroup()
+```
+
+# Descriptive analyses
+
+## Group counts
+
+```{r group-counts}
+CrossTable(studyid_wise$Desc_Salv_Consol, chisq = TRUE)
+CrossTable(chart_data$Desc_Salv_Consol, chisq = TRUE)
+```
+
+## Age at first SBRT
+
+```{r age-analysis}
+hist(chart_data$age_first_SBRT, breaks = 10, main = "Age at First SBRT", xlab = "Age")
+
+shapiro.test(chart_data$age_first_SBRT)
+summary(chart_data$age_first_SBRT)
+sd(chart_data$age_first_SBRT)
+
+studyid_wise %>%
+  group_by(Desc_Salv_Consol) %>%
+  summarise(
+    median_age = median(age_first_SBRT, na.rm = TRUE),
+    Q1 = quantile(age_first_SBRT, 0.25, na.rm = TRUE),
+    Q3 = quantile(age_first_SBRT, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+t.test(age_first_SBRT ~ Desc_Salv_Consol, data = studyid_wise)
+wilcox.test(age_first_SBRT ~ Desc_Salv_Consol, data = studyid_wise, exact = FALSE)
+```
+
+## Tumor size at SBRT
+
+```{r tumor-size-analysis}
+hist(chart_data$hcc_size_sbrt, breaks = 10, main = "Tumor size", xlab = "Size")
+
+shapiro.test(chart_data$hcc_size_sbrt)
+
+chart_data %>%
+  group_by(Desc_Salv_Consol) %>%
+  summarise(
+    median_size = median(hcc_size_sbrt, na.rm = TRUE),
+    Q1 = quantile(hcc_size_sbrt, 0.25, na.rm = TRUE),
+    Q3 = quantile(hcc_size_sbrt, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+t.test(hcc_size_sbrt ~ Desc_Salv_Consol, data = chart_data)
+wilcox.test(hcc_size_sbrt ~ Desc_Salv_Consol, data = studyid_wise, exact = FALSE)
+```
+
+## Selected categorical comparisons
+
+```{r categorical-comparisons}
+table1 <- table(studyid_wise$etiology_1, studyid_wise$Desc_Salv_Consol)
+chisq.test(table1)
+
+table(studyid_wise$etiology_2, studyid_wise$Desc_Salv_Consol)
+
+fisher.test(table(studyid_wise$pvtt, studyid_wise$Desc_Salv_Consol))
+chisq.test(table(chart_data$Milan_criteria, chart_data$Desc_Salv_Consol))
+chisq.test(table(studyid_wise$listed, studyid_wise$Desc_Salv_Consol))
+chisq.test(table(studyid_wise$transplant, studyid_wise$Desc_Salv_Consol))
+chisq.test(table(studyid_wise$cp_prior_group, studyid_wise$Desc_Salv_Consol))
+fisher.test(table(studyid_wise$cp_comp_base_6_mo, studyid_wise$Desc_Salv_Consol))
+fisher.test(table(studyid_wise$gd_3_tx, studyid_wise$Desc_Salv_Consol))
+```
+
+## Continuous summary table
+
+```{r summary-table}
+chart_data <- chart_data %>%
+  mutate(gtv = as.numeric(gtv))
+
+chart_data %>%
+  summarise(
+    median_gtv = median(gtv, na.rm = TRUE),
+    Q1_gtv = quantile(gtv, 0.25, na.rm = TRUE),
+    Q3_gtv = quantile(gtv, 0.75, na.rm = TRUE),
+    median_ptv = median(ptv, na.rm = TRUE),
+    median_td = median(td, na.rm = TRUE),
+    median_n_fx = median(n_fx, na.rm = TRUE),
+    median_eqd2 = median(eqd2, na.rm = TRUE),
+    median_mld = median(mld, na.rm = TRUE)
+  )
+
+vars <- c("gtv", "ptv", "td", "n_fx", "eqd2", "mld")
+results_list <- list()
+
+for (var in vars) {
+  values <- chart_data[[var]]
+  group <- chart_data$Desc_Salv_Consol
+
+  df <- data.frame(value = values, group = group) %>% 
+    filter(!is.na(value), !is.na(group))
+
+  summary_stats <- df %>%
+    group_by(group) %>%
+    summarise(
+      Median = median(value),
+      Q1 = quantile(value, 0.25),
+      Q3 = quantile(value, 0.75),
+      .groups = "drop"
+    )
+
+  p_val <- if (length(unique(df$group)) == 2) {
+    wilcox.test(value ~ group, data = df)$p.value
+  } else {
+    kruskal.test(value ~ group, data = df)$p.value
+  }
+
+  results_list[[var]] <- data.frame(
+    Variable = var,
+    Group1 = summary_stats$group[1],
+    Median1 = summary_stats$Median[1],
+    IQR1 = paste0("(", summary_stats$Q1[1], "–", summary_stats$Q3[1], ")"),
+    Group2 = summary_stats$group[2],
+    Median2 = summary_stats$Median[2],
+    IQR2 = paste0("(", summary_stats$Q1[2], "–", summary_stats$Q3[2], ")"),
+    P_value = round(p_val, 3)
+  )
+}
+
+summary_table <- do.call(rbind, results_list)
+summary_table
+```
+
+## Total summary table
+
+```{r total-summary-table}
+vars <- c("gtv", "ptv", "td", "n_fx", "eqd2", "mld")
+results_list <- list()
+
+for (var in vars) {
+  values <- chart_data[[var]]
+  group <- chart_data$Desc_Salv_Consol
+
+  df <- data.frame(value = values, group = group) %>% 
+    filter(!is.na(value), !is.na(group))
+
+  summary_stats <- df %>%
+    group_by(group) %>%
+    summarise(
+      Median = median(value),
+      Q1 = quantile(value, 0.25),
+      Q3 = quantile(value, 0.75),
+      .groups = "drop"
+    )
+
+  total_summary <- data.frame(
+    group = "Total",
+    Median = median(df$value),
+    Q1 = quantile(df$value, 0.25),
+    Q3 = quantile(df$value, 0.75)
+  )
+
+  p_val <- if (length(unique(df$group)) == 2) {
+    wilcox.test(value ~ group, data = df)$p.value
+  } else {
+    kruskal.test(value ~ group, data = df)$p.value
+  }
+
+  combined <- bind_rows(summary_stats, total_summary) %>%
+    mutate(
+      Variable = var,
+      IQR = paste0("(", round(Q1, 1), "–", round(Q3, 1), ")"),
+      P_value = ifelse(group == "Total", NA, round(p_val, 3))
+    ) %>%
+    select(Variable, Group = group, Median, IQR, P_value)
+
+  results_list[[var]] <- combined
+}
+
+final_summary <- bind_rows(results_list)
+final_summary
+```
+
+## Correct SBRT end date for one observation
+
+```{r fix-sbrt-end}
+hcc_data <- hcc_data %>%
+  mutate(
+    sbrt_end = if_else(
+      unique_id == 77,
+      as.Date("2018-10-19"),
+      sbrt_end
+    )
+  )
+
+hcc_data %>%
+  filter(unique_id == 77) %>%
+  select(unique_id, date_last_LDT, sbrt_end)
+```
+
+## Additional descriptive tables
+
+```{r table-6-7}
+table(chart_data$prior_LDT)
+fisher.test(table(chart_data$prior_LDT, chart_data$Desc_Salv_Consol))
+
+chart_data %>%
+  summarise(
+    median_prior_LDT = median(prior_LDT, na.rm = TRUE)
+  )
+
+table(chart_data$last_LDT, chart_data$Desc_Salv_Consol)
+fisher.test(table(chart_data$last_LDT, chart_data$Desc_Salv_Consol))
+```
+
+# Local control analysis
+
+## Build analysis dataset
+
+```{r local-control-dataset}
+model_set1 <- chart_data %>%
+  mutate(
+    time_lc_yr = as.numeric(difftime(lc_censor, sbrt_end, units = "days")) / 365,
+    resp = coalesce(resp, ""),
+    resp_fail = if_else(str_to_upper(str_trim(resp)) == "CPD", 1, 0)
+  )
+
+table(model_set1$resp, model_set1$resp_fail, useNA = "ifany")
+table(model_set1$resp, useNA = "ifany")
+table(model_set1$resp_fail, useNA = "ifany")
+```
+
+## Truncated 3-year event indicator
+
+```{r local-control-3yr}
+model_set1_3yr <- model_set1 %>%
+  mutate(
+    time_3yr = pmin(time_lc_yr, 3, na.rm = TRUE),
+    status_3yr = ifelse(resp_fail == 1 & time_lc_yr <= 3, 1, 0)
+  )
+
+table(model_set1_3yr$status_3yr, useNA = "ifany")
+table(model_set1$resp_fail, model_set1$Desc_Salv_Consol, useNA = "ifany")
+```
+
+## Follow-up summary
+
+```{r local-control-followup}
+summary(model_set1$time_lc_yr)
+max(model_set1$time_lc_yr, na.rm = TRUE)
+
+model_set1 %>% 
+  summarise(
+    n          = n(),
+    min_follow = min(time_lc_yr, na.rm = TRUE),
+    q1         = quantile(time_lc_yr, .25, na.rm = TRUE),
+    median     = median(time_lc_yr, na.rm = TRUE),
+    q3         = quantile(time_lc_yr, .75, na.rm = TRUE),
+    max_follow = max(time_lc_yr, na.rm = TRUE)
+  )
+```
+
+## Overall local control KM
+
+```{r lc-km-overall}
+surv_obj <- Surv(time = model_set1$time_lc_yr,
+                 event = model_set1$resp_fail)
+
+fit_km <- survfit(surv_obj ~ 1, data = model_set1)
+
+plot_km <- ggsurvplot(
+  fit_km,
+  conf.int      = FALSE,
+  risk.table    = TRUE,
+  xlab          = "Years from First Recurrence",
+  ylab          = "Local Control (%)",
+  title         = "Kaplan–Meier Curve for local control",
+  xlim          = c(0, 4),
+  break.time.by = 1,
+  ggtheme       = theme_minimal()
+)
+
+plot_km$plot <- plot_km$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_km)
+
+summary(fit_km)
+summary(fit_km, times = c(1, 2, 3, 4))
+median_lc <- summary(fit_km)$table["median"]
+median_lc
+```
+
+## Local control by treatment group
+
+```{r lc-km-group}
+surv_obj_full <- Surv(time = model_set1$time_lc_yr, event = model_set1$resp_fail)
+
+fit_km_full <- survfit(surv_obj_full ~ 1, data = model_set1, conf.type = "log-log")
+summary(fit_km_full, times = c(1, 2, 3, 4))
+
+fit_stratified <- survfit(Surv(time_lc_yr, resp_fail) ~ Desc_Salv_Consol, data = model_set1)
+summary(fit_stratified)
+
+plot_km <- ggsurvplot(
+  fit_stratified,
+  conf.int   = FALSE,
+  risk.table = TRUE,
+  pval       = TRUE,
+  xlab       = "Years from First Recurrence",
+  ylab       = "Local Control (%)",
+  title      = "Kaplan–Meier Plot (display truncated at 4 years)",
+  xlim       = c(0, 4),
+  break.time.by = 1,
+  legend.title  = "Group",
+  legend.labs   = c("Salvage", "CMT"),
+  ggtheme       = theme_minimal()
+)
+
+plot_km$plot <- plot_km$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_km)
+```
+
+## 4-year censored local control by group
+
+```{r lc-km-group-4yr}
+model_set1$time_lc_yr_4yr  <- pmin(model_set1$time_lc_yr, 4)
+model_set1$event_4yr       <- ifelse(model_set1$time_lc_yr > 4, 0, model_set1$resp_fail)
+
+fit_stratified <- survfit(Surv(time_lc_yr_4yr, event_4yr) ~ Desc_Salv_Consol, data = model_set1)
+
+plot_km <- ggsurvplot(
+  fit_stratified,
+  conf.int      = FALSE,
+  risk.table    = TRUE,
+  pval          = TRUE,
+  xlab          = "Years from First Recurrence",
+  ylab          = "Local Control (%)",
+  title         = "Kaplan–Meier Plot for overall Local Control by group",
+  xlim          = c(0, 4),
+  break.time.by = 1,
+  legend.title  = "Group",
+  legend.labs   = c("Salvage", "CMT"),
+  ggtheme       = theme_minimal()
+)
+
+plot_km$plot <- plot_km$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = seq(0, 4, 1)) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_km)
+```
+
+## Local control probability table and RMST
+
+```{r lc-prob-rmst}
+fit_stratified <- survfit(Surv(time_lc_yr, resp_fail) ~ Desc_Salv_Consol, data = model_set1)
+
+km_summary <- summary(
+  fit_stratified,
+  times = c(1, 2, 3, 4),
+  censored = TRUE,
+  extend = TRUE
+)
+
+fit_stratified_loglog <- survfit(
+  surv_obj_full ~ Desc_Salv_Consol,
+  data = model_set1,
+  conf.type = "log-log"
+)
+
+km_summary_1 <- summary(fit_stratified_loglog, times = c(1, 2, 3, 4))
+km_summary_1
+
+km_df <- data.frame(
+  Time_Year = km_summary$time,
+  Group     = gsub("Desc_Salv_Consol=", "", km_summary$strata),
+  N_Risk    = km_summary$n.risk,
+  N_Event   = km_summary$n.event,
+  Survival_Percent = round(100 * km_summary$surv, 1),
+  CI_Lower_Percent = round(100 * km_summary$lower, 1),
+  CI_Upper_Percent = round(100 * km_summary$upper, 1)
+)
+
+print(km_df)
+
+tau_lc <- 2.5
+
+sum_lc_overall <- summary(fit_km, rmean = tau_lc)$table
+
+overall_lc_rmst <- tibble(
+  group     = "Overall",
+  n         = as.numeric(sum_lc_overall["n"]),
+  tau       = tau_lc,
+  rmst      = as.numeric(sum_lc_overall["rmean"]),
+  se_rmst   = as.numeric(sum_lc_overall["se(rmean)"])
+) |>
+  mutate(
+    lower_95 = rmst - 1.96 * se_rmst,
+    upper_95 = rmst + 1.96 * se_rmst
+  ) |>
+  mutate(across(c(tau, rmst, se_rmst, lower_95, upper_95), ~ round(., 2)))
+
+overall_lc_rmst
+
+rmst_lc_tbl <- summary(fit_stratified, rmean = tau_lc)$table |>
+  as.data.frame() |>
+  rownames_to_column("group") |>
+  transmute(
+    group,
+    n        = records,
+    events   = events,
+    tau      = tau_lc,
+    rmst     = rmean,
+    se_rmst  = `se(rmean)`,
+    lower_95 = rmean - 1.96 * `se(rmean)`,
+    upper_95 = rmean + 1.96 * `se(rmean)`
+  ) |>
+  mutate(across(c(tau, rmst, se_rmst, lower_95, upper_95), ~ round(., 2)))
+
+rmst_lc_tbl
+```
+
+# Overall survival analysis
+
+## Build OS dataset
+
+```{r os-dataset}
+model_overall <- studyid_wise %>%
+  mutate(
+    time_os = as.numeric(os_censor - date_LTD1) / 365,
+    flg_over = ifelse(os_censor_reason == "died", 1, 0)
+  )
+table(model_overall$flg_over, useNA = "ifany")
+nrow(model_overall)
+
+model_overall <- studyid_wise %>%
+  mutate(
+    time_os   = as.numeric(os_censor - date_LTD1) / 365,
+    status_os = ifelse(os_censor_reason == "died", 1, 0)
+  )
+
+table(model_overall$status_os, useNA = "ifany")
+summary(model_overall$time_os)
+```
+
+## Overall OS KM, median, RMST
+
+```{r os-km-overall}
+fit_os <- survfit(Surv(time_os, status_os) ~ 1, data = model_overall)
+
+plot_os <- ggsurvplot(
+  fit_os,
+  conf.int      = FALSE,
+  risk.table    = TRUE,
+  xlab          = "Years from Index Date",
+  ylab          = "Overall Survival (%)",
+  title         = "Kaplan–Meier Curve for Overall Survival",
+  xlim          = c(0, 4),
+  break.time.by = 1,
+  ggtheme       = theme_minimal()
+)
+
+plot_os$plot <- plot_os$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_os)
+
+times <- c(1, 2, 3, 4)
+km_at_t <- summary(fit_os, times = times)
+
+prob_tbl <- data.frame(
+  time      = km_at_t$time,
+  surv_prob = km_at_t$surv,
+  lower_95  = km_at_t$lower,
+  upper_95  = km_at_t$upper
+)
+
+prob_tbl
+
+med_vec <- summary(fit_os)$table[c("median", "0.95LCL", "0.95UCL")]
+
+median_tbl <- data.frame(
+  median_surv = med_vec["median"],
+  lower_95    = med_vec["0.95LCL"],
+  upper_95    = med_vec["0.95UCL"]
+)
+
+median_tbl
+
+tau_os <- 7.0
+
+sum_os_7 <- summary(fit_os, rmean = tau_os)$table
+rmst_overall_os_7 <- data.frame(
+  tau        = tau_os,
+  rmst_total = as.numeric(sum_os_7["rmean"]),
+  se_rmst    = as.numeric(sum_os_7["se(rmean)"])
+)
+
+rmst_overall_os_7$lower_95 <- with(rmst_overall_os_7, rmst_total - 1.96 * se_rmst)
+rmst_overall_os_7$upper_95 <- with(rmst_overall_os_7, rmst_total + 1.96 * se_rmst)
+rmst_overall_os_7[] <- lapply(rmst_overall_os_7, \(x) if(is.numeric(x)) round(x, 2) else x)
+
+rmst_overall_os_7
+```
+
+## Reverse KM follow-up
+
+```{r reverse-km-followup}
+model_overall <- model_overall %>%
+  mutate(followup_surv = Surv(time_os, status_os == 0))
+
+rev_km_fit_total <- survfit(followup_surv ~ 1, data = model_overall, conf.type = "plain")
+rev_km_total <- summary(rev_km_fit_total)$table[c("median", "0.95LCL", "0.95UCL")]
+
+followup_total_tbl <- data.frame(
+  Group            = "Total",
+  Median_Followup  = rev_km_total["median"],
+  Lower_95_CI      = rev_km_total["0.95LCL"],
+  Upper_95_CI      = rev_km_total["0.95UCL"]
+)
+
+rev_km_fit_by_group <- survfit(followup_surv ~ Desc_Salv_Consol, data = model_overall, conf.type = "plain")
+group_summaries <- summary(rev_km_fit_by_group)$table
+
+followup_group_tbl <- data.frame(
+  Group            = rownames(group_summaries),
+  Median_Followup  = group_summaries[, "median"],
+  Lower_95_CI      = group_summaries[, "0.95LCL"],
+  Upper_95_CI      = group_summaries[, "0.95UCL"]
+)
+
+full_followup_tbl <- bind_rows(followup_total_tbl, followup_group_tbl)
+full_followup_tbl
+
+ggsurvplot(
+  rev_km_fit_total,
+  conf.int = TRUE,
+  xlab = "Follow-up Time (Years)",
+  ylab = "Proportion Remaining Unfollowed (Reverse KM)",
+  title = "Reverse Kaplan–Meier Curve for Follow-Up Time"
+)
+```
+
+## Overall survival by treatment group
+
+```{r os-km-group}
+fit_os <- survfit(Surv(time_os, status_os) ~ 1, data = model_overall)
+model_overall$time_os_4yr <- pmin(model_overall$time_os, 4)
+model_overall$event_os_4yr <- ifelse(model_overall$time_os > 4, 0, model_overall$status_os)
+
+fit_stratified_os <- survfit(Surv(time_os_4yr, event_os_4yr) ~ Desc_Salv_Consol, data = model_overall)
+
+plot_km <- ggsurvplot(
+  fit_stratified_os,
+  conf.int      = FALSE,
+  risk.table    = TRUE,
+  pval          = TRUE,
+  xlab          = "Years from First Recurrence",
+  ylab          = "Overal Survival (%)",
+  title         = "Kaplan–Meier Plot for overall survival by group",
+  xlim          = c(0, 4),
+  break.time.by = 1,
+  legend.title  = "Group",
+  legend.labs   = c("Salvage", "CMT"),
+  ggtheme       = theme_minimal()
+)
+
+plot_km$plot <- plot_km$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = seq(0, 4, 1)) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_km)
+```
+
+
+
+# Subgroup analysis
+
+## Treatment interval subgroup for local control
+
+```{r subgroup-local-control}
+model_subgroup <- chart_data %>%
+  mutate(
+    months_treat_time = as.numeric(difftime(sbrt_end, date_last_LDT, units = "days")) / 30.44,
+    subgroup_flg = case_when(
+      months_treat_time <  6 ~ 1,
+      months_treat_time >= 6 ~ 2,
+      TRUE                   ~ NA_real_
+    ),
+    time_lc_yr = as.numeric(difftime(lc_censor, sbrt_end, units = "days")) / 365,
+    resp_fail  = if_else(str_to_upper(str_trim(coalesce(resp, ""))) == "CPD", 1, 0),
+    treatment_group = factor(
+      subgroup_flg,
+      levels = c(1, 2),
+      labels = c("<6 months treatment", "≥6 months treatment")
+    )
+  )
+
+surv_obj <- Surv(time = model_subgroup$time_lc_yr,
+                 event = model_subgroup$resp_fail)
+
+fit_km_sg <- survfit(surv_obj ~ treatment_group, data = model_subgroup)
+
+summary(fit_km_sg, times = c(1, 2, 3, 4))
+summary(fit_km_sg, times = 1:4, conf.type = "plain")
+summary(fit_km_sg, conf.type = "plain")$table
+
+max_by_arm <- with(model_subgroup,
+                   tapply(time_lc_yr, treatment_group, max, na.rm = TRUE))
+max_by_arm
+
+tau <- 4.5
+tbl <- summary(fit_km_sg, rmean = tau)$table
+
+rmst_tbl <- tbl |>
+  as.data.frame(check.names = FALSE) |>
+  tibble::rownames_to_column("group") |>
+  dplyr::transmute(
+    group     = sub("^.*=", "", group),  
+    tau       = tau,
+    rmst      = rmean,
+    se_rmst   = `se(rmean)`,
+    lower_95  = rmst - 1.96 * se_rmst,
+    upper_95  = rmst + 1.96 * se_rmst
+  )
+
+rmst_tbl
+```
+
+## Function to pick tau before heavy censoring
+
+```{r tau-function}
+cutoff_tau_before_heavy_censoring <- function(fit, by = 0.25, risk_threshold = 0.10) {
+  s_all <- summary(fit)
+  t_max <- min(tapply(s_all$time, s_all$strata, max, na.rm = TRUE), na.rm = TRUE)
+  times <- seq(0, t_max, by = by)
+
+  s <- summary(fit, times = times)
+
+  df <- tibble(
+    time     = s$time,
+    strata   = s$strata,
+    n_risk   = s$n.risk,
+    n_event  = s$n.event,
+    n_censor = s$n.censor
+  )
+
+  n0 <- df %>%
+    group_by(strata) %>%
+    summarise(N0 = max(n_risk, na.rm = TRUE), .groups = "drop")
+
+  df2 <- df %>%
+    inner_join(n0, by = "strata") %>%
+    mutate(frac_at_risk = n_risk / N0)
+
+  limiting <- df2 %>%
+    group_by(time) %>%
+    summarise(min_frac_at_risk = min(frac_at_risk, na.rm = TRUE), .groups = "drop")
+
+  tau_suggested <- limiting %>%
+    filter(min_frac_at_risk >= risk_threshold) %>%
+    summarise(tau = max(time, na.rm = TRUE)) %>%
+    pull(tau)
+
+  list(
+    tau_suggested       = tau_suggested,
+    limiting_support    = limiting,
+    per_time_support    = df2,
+    t_max_shortest      = t_max,
+    risk_threshold_used = risk_threshold,
+    grid_by             = by
+  )
+}
+
+out_sg <- cutoff_tau_before_heavy_censoring(fit_km_sg, by = 0.25, risk_threshold = 0.10)
+out_sg$tau_suggested
+head(out_sg$limiting_support, 10)
+
+out_sg_20 <- cutoff_tau_before_heavy_censoring(fit_km_sg, by = 0.25, risk_threshold = 0.20)
+out_sg_20$tau_suggested
+
+tbl1 <- summary(fit_km_sg, rmean = out_sg$tau_suggested)$table
+
+rmst_tbl <- tbl1 |>
+  as.data.frame(check.names = FALSE) |>
+  tibble::rownames_to_column("group") |>
+  dplyr::transmute(
+    group     = sub("^.*=", "", group),  
+    tau       = tau,
+    rmst      = rmean,
+    se_rmst   = `se(rmean)`,
+    lower_95  = rmst - 1.96 * se_rmst,
+    upper_95  = rmst + 1.96 * se_rmst
+  )
+
+rmst_tbl
+```
+
+## Overall survival by subgroup
+
+```{r os-subgroup}
+model_surv_sub <- studyid_wise %>%
+  mutate(
+    time_os = as.numeric(os_censor - date_LTD1) / 365,
+    status_os = if_else(os_censor_reason == "died", 1, 0),
+    months_treat_time = as.numeric(difftime(sbrt_end, date_last_LDT, units = "days")) / 30.44,
+    subgroup_flg = case_when(
+      months_treat_time < 6  ~ 1,
+      months_treat_time >= 6 ~ 2,
+      TRUE ~ NA_real_
+    ),
+    subgroup = factor(subgroup_flg,
+                      levels = c(1, 2),
+                      labels = c("<6 months treatment", "≥6 months treatment"))
+  )
+
+model_surv_sub <- filter(model_surv_sub, !is.na(subgroup))
+
+fit_os_subgroup <- survfit(Surv(time_os, status_os) ~ subgroup, data = model_surv_sub)
+
+plot_os_subgroup <- ggsurvplot(
+  fit_os_subgroup,
+  conf.int      = FALSE,
+  risk.table    = TRUE,
+  pval          = TRUE,
+  xlab          = "Years From First Recurrence",
+  ylab          = "Overall Survival (%)",
+  title         = "Kaplan–Meier Plot for Overall Survival by Subgroup",
+  legend.title  = "",
+  xlim          = c(0, 4),
+  break.time.by = 1,
+  ggtheme       = theme_minimal()
+)
+
+plot_os_subgroup$plot <- plot_os_subgroup$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(plot_os_subgroup)
+
+log_rank <- survdiff(Surv(time_os, status_os) ~ subgroup, data = model_surv_sub)
+pval <- 1 - pchisq(log_rank$chisq, df = length(log_rank$n) - 1)
+cat("Log-rank p-value:", signif(pval, 4), "\n")
+```
+
+## Subgroup survival probabilities and RMST
+
+```{r os-subgroup-probs-rmst}
+times_vec <- 1:4
+
+fit_overall <- survfit(Surv(time_os, status_os) ~ 1, data = model_surv_sub)
+sp_all <- summary(fit_overall, times = times_vec)
+
+overall_tbl <- tibble(
+  group     = "All patients",
+  time_year = sp_all$time,
+  surv_prob = sp_all$surv,
+  lower_95  = sp_all$lower,
+  upper_95  = sp_all$upper
+)
+
+get_probs <- function(dat, label, times = times_vec, conf.type = "log-log") {
+  sf  <- survfit(Surv(time_os, status_os) ~ 1, data = dat, conf.type = conf.type)
+  ss  <- summary(sf, times = times)
+  tibble(
+    group     = label,
+    time_year = ss$time,
+    surv_prob = ss$surv,
+    lower_95  = ss$lower,
+    upper_95  = ss$upper
+  )
+}
+
+by_group_tbl <- bind_rows(
+  get_probs(filter(model_surv_sub, subgroup == "<6 months treatment"), "<6 months treatment"),
+  get_probs(filter(model_surv_sub, subgroup == "≥6 months treatment"), "≥6 months treatment")
+)
+
+surv_probs_tbl <- bind_rows(overall_tbl, by_group_tbl) %>%
+  mutate(across(c(surv_prob, lower_95, upper_95), ~ round(.x, 3)))
+
+surv_probs_tbl
+
+cutoff_tau_before_heavy_censoring <- function(fit, by = 0.25, risk_threshold = 0.10) {
+  s_all <- summary(fit)
+  t_max <- min(tapply(s_all$time, s_all$strata, max, na.rm = TRUE), na.rm = TRUE)
+  times <- seq(0, t_max, by = by)
+
+  s <- summary(fit, times = times)
+
+  df <- tibble(
+    time     = s$time,
+    strata   = s$strata,
+    n_risk   = s$n.risk
+  )
+
+  n0 <- df %>%
+    group_by(strata) %>%
+    summarise(N0 = max(n_risk, na.rm = TRUE), .groups = "drop")
+
+  df2 <- df %>%
+    inner_join(n0, by = "strata") %>%
+    mutate(frac_at_risk = n_risk / N0)
+
+  limiting <- df2 %>%
+    group_by(time) %>%
+    summarise(min_frac_at_risk = min(frac_at_risk, na.rm = TRUE), .groups = "drop")
+
+  tau_suggested <- limiting %>%
+    filter(min_frac_at_risk >= risk_threshold) %>%
+    summarise(tau = max(time, na.rm = TRUE)) %>%
+    pull(tau)
+
+  list(
+    tau_suggested       = tau_suggested,
+    limiting_support    = limiting,
+    per_time_support    = df2,
+    t_max_shortest      = t_max,
+    risk_threshold_used = risk_threshold,
+    grid_by             = by
+  )
+}
+
+out_tau <- cutoff_tau_before_heavy_censoring(fit_os_subgroup, by = 0.25, risk_threshold = 0.10)
+tau_os_sub <- out_tau$tau_suggested
+tau_os_sub
+
+median_tbl <- summary(fit_os_subgroup)$table[, "median", drop = FALSE] %>%
+  as.data.frame() %>%
+  rownames_to_column("group") %>%
+  rename(median_time = median)
+
+rmst_tbl <- summary(fit_os_subgroup, rmean = tau_os_sub)$table %>%
+  as.data.frame() %>%
+  rownames_to_column("group") %>%
+  transmute(
+    group,
+    n        = records,
+    events   = events,
+    tau      = tau_os_sub,
+    rmst     = rmean,
+    se_rmst  = `se(rmean)`,
+    lower_95 = rmean - 1.96 * se_rmst,
+    upper_95 = rmean + 1.96 * se_rmst
+  ) %>%
+  mutate(across(c(tau, rmst, se_rmst, lower_95, upper_95), ~ round(., 2)))
+
+final_tbl <- median_tbl %>%
+  left_join(rmst_tbl, by = "group")
+
+final_tbl
+```
+
+# Cox regression analyses
+
+
+```{r more-cox-univariable}
+model_set1 <- model_set1 %>%
+  mutate(
+    hcc_size_gt = if_else(hcc_size_sbrt > 3, 1L, 0L)
+  )
+
+cox_hccsize <- coxph(
+  Surv(time_lc_yr, resp_fail) ~ hcc_size_gt,
+  data = model_set1
+)
+summary(cox_hccsize)
+
+cox_trt_os <- coxph(
+  Surv(time_os, status_os) ~ Desc_Salv_Consol,
+  data = model_overall
+)
+summary(cox_trt_os)
+
+model_overall <- model_overall %>%
+  mutate(age_gt60 = if_else(age_first_SBRT > 60, 1L, 0L))
+
+cox_age_gt60 <- coxph(
+  Surv(time_os, status_os) ~ age_gt60,
+  data = model_overall
+)
+summary(cox_age_gt60)
+
+model_overall <- model_overall %>% 
+  mutate(
+    Milan_criteria = relevel(factor(Milan_criteria), ref = "No")
+  )
+
+cox_milan <- coxph(
+  Surv(time_os, status_os) ~ Milan_criteria,
+  data = model_overall
+)
+summary(cox_milan)
+
+cox_listed <- coxph(
+  Surv(time_os, status_os) ~ listed,
+  data = model_overall
+)
+summary(cox_listed)
+
+cox_transplant <- coxph(
+  Surv(time_os, status_os) ~ transplant,
+  data = model_overall
+)
+summary(cox_transplant)
+
+cox_pvtt <- coxph(
+  Surv(time_os, status_os) ~ pvtt,
+  data = model_overall
+)
+summary(cox_pvtt)
+
+model_overall <- model_overall %>%
+  mutate(
+    afp_prior_sbrt_cat = if_else(afp_prior_sbrt >= 10, 1L, 0L)
+  )
+
+table(model_overall$afp_prior_sbrt_cat, useNA = "ifany")
+
+cox_afp <- coxph(
+  Surv(time_os, status_os) ~ afp_prior_sbrt_cat,
+  data = model_overall
+)
+summary(cox_afp)
+
+model_overall <- model_overall %>%
+  mutate(
+    cp_prior_group = relevel(factor(cp_prior_group), ref = "B/C")
+  )
+
+cox_cp <- coxph(
+  Surv(time_os, status_os) ~ cp_prior_group,
+  data = model_overall
+)
+summary(cox_cp)
+
+model_overall <- model_overall %>%
+  mutate(
+    hcc_size_gt = if_else(hcc_size_sbrt > 3, 1L, 0L)
+  )
+
+cox_hccsize <- coxph(
+  Surv(time_os, status_os) ~ hcc_size_gt,
+  data = model_overall
+)
+summary(cox_hccsize)
+
+model_overall <- model_overall %>%
+  mutate(
+    eqd2_gt80 = if_else(eqd2 > 80, 1L, 0L)
+  )
+
+cox_eqd2 <- coxph(
+  Surv(time_os, status_os) ~ eqd2_gt80,
+  data = model_overall
+)
+summary(cox_eqd2)
+```
+
+## Multivariable Cox model
+
+```{r cox-multivariable}
+model_overall <- model_overall %>%
+  mutate(
+    Desc_Salv_Consol = relevel(factor(Desc_Salv_Consol), ref = "Salvage"),
+    hcc_size_gt      = factor(if_else(hcc_size_sbrt > 3, 1L, 0L)),
+    age_gt60         = factor(if_else(age_first_SBRT > 60, 1L, 0L)),
+    Milan_criteria   = relevel(factor(Milan_criteria), ref = "No"),
+    listed           = factor(listed),
+    transplant       = factor(transplant),
+    pvtt             = factor(pvtt),
+    cp_prior_group   = relevel(factor(cp_prior_group), ref = "B/C"),
+    afp_prior_sbrt_cat = factor(if_else(afp_prior_sbrt >= 10, 1L, 0L)),
+    eqd2_gt80        = factor(if_else(eqd2 > 80, 1L, 0L))
+  )
+
+forced_vars <- c("Desc_Salv_Consol", "hcc_size_gt")
+candidates  <- c("age_gt60","Milan_criteria","listed","transplant","pvtt",
+                 "afp_prior_sbrt_cat","cp_prior_group","eqd2_gt80")
+
+dat <- model_overall %>%
+  select(time_os, status_os, all_of(forced_vars), all_of(candidates)) %>%
+  na.omit()
+
+base_f <- as.formula(
+  paste("Surv(time_os, status_os) ~", paste(forced_vars, collapse = " + "))
+)
+
+full_f <- as.formula(
+  paste("Surv(time_os, status_os) ~",
+        paste(c(forced_vars, candidates), collapse = " + "))
+)
+
+fit_base <- coxph(base_f, data = dat, x = TRUE, y = TRUE)
+
+fit_forward_aic <- step(
+  fit_base,
+  scope = list(lower = base_f, upper = full_f),
+  direction = "forward",
+  trace = 1
+)
+
+summary(fit_forward_aic)
+
+hr_tbl <- data.frame(
+  Variable = rownames(coef(summary(fit_forward_aic))),
+  HR       = exp(coef(fit_forward_aic)),
+  LCL      = exp(confint(fit_forward_aic)[,1]),
+  UCL      = exp(confint(fit_forward_aic)[,2]),
+  p_value  = coef(summary(fit_forward_aic))[,"Pr(>|z|)"],
+  row.names = NULL
+)
+
+hr_tbl
+cox.zph(fit_forward_aic)
+```
+
+## Manual model building
+
+```{r cox-manual}
+dat <- model_overall %>%
+  mutate(
+    Desc_Salv_Consol = relevel(factor(Desc_Salv_Consol), ref = "Salvage"),
+    hcc_size_gt      = factor(if_else(hcc_size_sbrt > 3, 1L, 0L))
+  )
+
+fit_start <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt,
+                   data = dat)
+summary(fit_start)
+AIC(fit_start)
+
+fit_2 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + age_gt60,
+               data = dat)
+summary(fit_2)
+AIC(fit_2)
+
+fit_3 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt,
+               data = dat)
+summary(fit_3)
+AIC(fit_3)
+
+fit_4 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat,
+               data = dat)
+summary(fit_4)
+AIC(fit_4)
+
+fit_5 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + Milan_criteria,
+               data = dat)
+summary(fit_5)
+AIC(fit_5)
+
+fit_6 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + listed,
+               data = dat)
+summary(fit_6)
+AIC(fit_6)
+
+fit_7 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + listed + transplant,
+               data = dat)
+summary(fit_7)
+AIC(fit_7)
+
+fit_8 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + listed + transplant + cp_prior_group,
+               data = dat)
+summary(fit_8)
+AIC(fit_8)
+
+fit_9 <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + listed + transplant + cp_prior_group + eqd2_gt80,
+               data = dat)
+summary(fit_9)
+AIC(fit_9)
+
+final_model_os <- coxph(Surv(time_os, status_os) ~ Desc_Salv_Consol + hcc_size_gt + pvtt + afp_prior_sbrt_cat + listed + transplant + cp_prior_group,
+                        data = dat)
+summary(final_model_os)
+AIC(final_model_os)
+```
+
+# Additional analyses
+
+## Recurrent vs residual tumors
+
+```{r recurrent-vs-residual}
+model_lc <- model_set1 %>%
+  filter(residual_reccurence %in% c("Residual", "Recurrence", "Not included"))
+
+table9_summary <- model_lc %>%
+  group_by(residual_reccurence) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  mutate(Percent = round(100 * N / sum(N), 1))
+
+table9_summary
+
+model_km <- model_set1 %>%
+  mutate(
+    group_recur = if_else(residual_reccurence == "Recurrence",
+                          "Recurrent tumor followed by salvage SBRT",
+                          "CMT including residual tumors")
+  )
+
+fit_km <- survfit(Surv(time_lc_yr, resp_fail) ~ group_recur, data = model_km)
+
+lc_summary <- summary(fit_km, times = c(1:4))
+km_table <- data.frame(
+  Group   = rep(levels(factor(model_km$group_recur)), each = length(lc_summary$time) / 2),
+  Time    = lc_summary$time,
+  LC_rate = round(lc_summary$surv * 100, 1)
+)
+
+print(km_table)
+
+plot_recurrent_group <- ggsurvplot(
+  fit_km,
+  data = model_km,
+  risk.table = TRUE,
+  pval = sprintf("p = %.2f", surv_pvalue(fit_km, data = model_km)$pval),
+  conf.int = FALSE,
+  xlab = "Years from First Recurrence",
+  ylab = "Local Control (%)",
+  title = "Kaplan–Meier Plot of Local Control by Treatment Type in Recurrent vs. Residual Tumors",
+  legend.title = "",
+  legend.labs = c("CMT including residual tumors", "Recurrent tumor followed by salvage SBRT"),
+  break.time.by = 1,
+  xlim = c(0, 4),
+  ggtheme = theme_minimal()
+)
+
+plot_recurrent_group$plot <- plot_recurrent_group$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid = element_blank()
+  )
+
+print(plot_recurrent_group)
+```
+
+## Recurrent vs residual probability table and RMST
+
+```{r recurrent-vs-residual-rmst}
+fit_km <- survfit(
+  Surv(time_lc_yr, resp_fail) ~ group_recur,
+  data = model_km,
+  conf.type = "log-log"
+)
+
+lc_summary <- summary(fit_km, times = c(1, 2, 3, 4))
+
+lc_df <- data.frame(
+  Group    = lc_summary$strata,
+  Time     = lc_summary$time,
+  N_Risk   = lc_summary$n.risk,
+  N_Event  = lc_summary$n.event,
+  Survival = round(lc_summary$surv  * 100, 1),
+  LCL      = round(lc_summary$lower * 100, 1),
+  UCL      = round(lc_summary$upper * 100, 1),
+  row.names = NULL
+)
+
+lc_df$Group <- sub("^.*=", "", lc_df$Group)
+lc_df
+
+summary(fit_km)$table
+
+max_by_arm <- with(model_km,
+                   tapply(time_lc_yr, group_recur, max, na.rm = TRUE))
+max_by_arm
+
+tau <- 4.5
+
+rmst_tbl <- summary(fit_km, rmean = tau)$table |>
+  as.data.frame(check.names = FALSE) |>
+  tibble::rownames_to_column("group") |>
+  dplyr::transmute(
+    group     = sub("^.*=", "", group),
+    tau       = tau,
+    rmst      = rmean,
+    se_rmst   = `se(rmean)`,
+    lower_95  = rmst - 1.96 * se_rmst,
+    upper_95  = rmst + 1.96 * se_rmst
+  )
+rmst_tbl
+```
+
+## Tau selection before heavy censoring for recurrent vs residual
+
+```{r recurrent-tau}
+cutoff_tau_before_heavy_censoring <- function(fit, by = 0.25, risk_threshold = 0.10) {
+  s_all <- summary(fit)
+  t_max <- min(tapply(s_all$time, s_all$strata, max, na.rm = TRUE), na.rm = TRUE)
+  times <- seq(0, t_max, by = by)
+
+  s <- summary(fit, times = times)
+
+  df <- tibble(
+    time   = s$time,
+    strata = s$strata,
+    n_risk = s$n.risk
+  )
+
+  n0 <- df %>%
+    group_by(strata) %>%
+    summarise(N0 = max(n_risk, na.rm = TRUE), .groups = "drop")
+
+  df2 <- df %>%
+    inner_join(n0, by = "strata") %>%
+    mutate(frac_at_risk = n_risk / N0)
+
+  limiting <- df2 %>%
+    group_by(time) %>%
+    summarise(min_frac_at_risk = min(frac_at_risk, na.rm = TRUE), .groups = "drop")
+
+  tau_suggested <- limiting %>%
+    filter(min_frac_at_risk >= risk_threshold) %>%
+    summarise(tau = max(time, na.rm = TRUE)) %>%
+    pull(tau)
+
+  list(
+    tau_suggested       = tau_suggested,
+    limiting_support    = limiting,
+    per_time_support    = df2,
+    t_max_shortest      = t_max,
+    risk_threshold_used = risk_threshold,
+    grid_by             = by
+  )
+}
+
+out_tau_lc <- cutoff_tau_before_heavy_censoring(fit_km, by = 0.25, risk_threshold = 0.10)
+tau_lc <- out_tau_lc$tau_suggested
+tau_lc
+
+rmst_lc_tbl <- summary(fit_km, rmean = tau_lc)$table %>%
+  as.data.frame() %>%
+  rownames_to_column("group") %>%
+  transmute(
+    group,
+    n        = records,
+    events   = events,
+    tau      = tau_lc,
+    rmst     = rmean,
+    se_rmst  = `se(rmean)`,
+    lower_95 = rmean - 1.96 * se_rmst,
+    upper_95 = rmean + 1.96 * se_rmst
+  ) %>%
+  mutate(across(c(tau, rmst, se_rmst, lower_95, upper_95), ~ round(., 2)))
+
+rmst_lc_tbl
+```
+
+## CMT diagnostic imaging subgroup
+
+```{r cmt-diagnostic-subgroup}
+model_set1 <- model_set1 %>%
+  mutate(
+    cmt_diag_test_bin = case_when(
+      cmt_diag_test == "No"  ~ 0,
+      cmt_diag_test == "Yes" ~ 1,
+      cmt_diag_test == "Not included" ~ NA_real_
+    )
+  )
+
+table(model_set1$cmt_diag_test, model_set1$cmt_diag_test_bin, useNA = "ifany")
+
+cmt_subset <- model_set1 %>%
+  filter(Desc_Salv_Consol == "Consolidate/CMV") %>%
+  mutate(
+    cmt_diag_test_bin = dplyr::case_when(
+      cmt_diag_test == "No"  ~ 0,
+      cmt_diag_test == "Yes" ~ 1,
+      TRUE ~ NA_real_
+    ),
+    diag_group = if_else(cmt_diag_test_bin == 1,
+                         "Diagnostic imaging between tx",
+                         "No diagnostic imaging between tx")
+  ) %>%
+  filter(!is.na(cmt_diag_test_bin))
+
+table(cmt_subset$diag_group, useNA = "ifany")
+```
+
+## CMT diagnostic imaging KM and RMST
+
+```{r cmt-diagnostic-km}
+fit_km_cmt <- survfit(
+  Surv(time_lc_yr, resp_fail) ~ diag_group,
+  data = cmt_subset,
+  conf.type = "log-log"
+)
+
+lc_summary <- summary(fit_km_cmt, times = c(1, 2, 3, 4))
+
+lc_df <- data.frame(
+  Group    = sub("^.*=", "", lc_summary$strata),
+  Time     = lc_summary$time,
+  N_Risk   = lc_summary$n.risk,
+  N_Event  = lc_summary$n.event,
+  Survival = round(lc_summary$surv  * 100, 1),
+  LCL      = round(lc_summary$lower * 100, 1),
+  UCL      = round(lc_summary$upper * 100, 1),
+  row.names = NULL
+)
+lc_df
+
+cmt_trunc <- cmt_subset %>%
+  mutate(
+    time4   = pmin(time_lc_yr, 4),
+    status4 = ifelse(resp_fail == 1 & time_lc_yr <= 4, 1, 0)
+  )
+
+fit_km_cmt_trim <- survfit(Surv(time4, status4) ~ diag_group,
+                           data = cmt_trunc, conf.type = "log-log")
+
+km <- ggsurvplot(
+  fit_km_cmt_trim,
+  data = cmt_trunc,
+  conf.int   = FALSE,
+  pval       = TRUE,
+  risk.table = TRUE,
+  xlim       = c(0, 4),
+  title = "Kaplan–Meier Plot of Local Control in CMT Tumors With and Without Diagnostic Imaging Between Treatments",
+  break.time.by = 1,
+  ggtheme    = theme_minimal(),
+  xlab       = "Years from First Recurrence",
+  ylab       = "Local Control (%)",
+  legend.title = "",
+  legend.labs  = c("Diagnostic imaging between tx", "No diagnostic imaging between tx")
+)
+
+km$plot <- km$plot +
+  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    panel.background = element_blank(),
+    panel.grid       = element_blank()
+  )
+
+print(km)
+
+tapply(cmt_subset$time_lc_yr, cmt_subset$diag_group, max)
+
+tau <- min(
+  tapply(cmt_subset$time_lc_yr, cmt_subset$diag_group, max)
+)
+tau
+
+cmt_subset$diag_bin <- ifelse(
+  cmt_subset$diag_group == "Diagnostic imaging between tx", 1, 0
+)
+
+rmst_tbl <- summary(fit_km_cmt, rmean = tau)$table |>
+  as.data.frame(check.names = FALSE) |>
+  tibble::rownames_to_column("group") |>
+  dplyr::transmute(
+    group     = sub("^.*=", "", group),
+    tau       = tau,
+    rmst      = rmean,
+    se_rmst   = `se(rmean)`,
+    lower_95  = rmst - 1.96 * se_rmst,
+    upper_95  = rmst + 1.96 * se_rmst
+  )
+rmst_tbl
+```
+
+## Alternative tau selection for CMT subgroup
+
+```{r cmt-tau}
+km_df <- broom::tidy(fit_km_cmt) %>%
+  group_by(strata) %>%
+  mutate(risk_prop = n.risk / max(n.risk)) %>%
+  summarise(
+    tau_suggested = max(time[risk_prop >= 0.10]),
+    .groups = "drop"
+  )
+
+tau_cmt <- min(km_df$tau_suggested)
+tau_cmt
+
+rmst_cmt_tbl <- summary(fit_km_cmt, rmean = tau_cmt)$table %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("group") %>%
+  transmute(
+    group,
+    n        = records,
+    events   = events,
+    tau      = tau_cmt,
+    rmst     = rmean,
+    se_rmst  = `se(rmean)`,
+    lower_95 = rmean - 1.96 * se_rmst,
+    upper_95 = rmean + 1.96 * se_rmst
+  ) %>%
+  mutate(across(c(tau, rmst, se_rmst, lower_95, upper_95), ~ round(., 2)))
+
+rmst_cmt_tbl
+```
+
+## Table 10 interval summary
+
+```{r table-10}
+model_set1 <- model_set1 %>%
+  mutate(
+    sbrt_end = if_else(
+      unique_id == 77,
+      as.Date("2018-10-19"),
+      sbrt_end
+    )
+  )
+
+model_set1 %>%
+  filter(unique_id == 77) %>%
+  select(unique_id, date_last_LDT, sbrt_end)
+
+model_set1$ldt_to_sbrt_interval_months <- time_length(
+  interval(model_set1$date_last_LDT, model_set1$sbrt_end),
+  unit = "months"
+)
+
+group_summary <- model_set1 %>%
+  group_by(Desc_Salv_Consol) %>%
+  summarise(
+    Median = round(median(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    Q1 = round(quantile(ldt_to_sbrt_interval_months, 0.25, na.rm = TRUE), 1),
+    Q3 = round(quantile(ldt_to_sbrt_interval_months, 0.75, na.rm = TRUE), 1),
+    Range_Low = round(min(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    Range_High = round(max(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    N = sum(!is.na(ldt_to_sbrt_interval_months)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    IQR = paste0("(", Q1, "–", Q3, ")"),
+    Range = paste0("(", Range_Low, "–", Range_High, ")"),
+    p_value = NA
+  ) %>%
+  select(Group = Desc_Salv_Consol, Median, IQR, Range, N, p_value)
+
+total_summary <- model_set1 %>%
+  summarise(
+    Median = round(median(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    Q1 = round(quantile(ldt_to_sbrt_interval_months, 0.25, na.rm = TRUE), 1),
+    Q3 = round(quantile(ldt_to_sbrt_interval_months, 0.75, na.rm = TRUE), 1),
+    Range_Low = round(min(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    Range_High = round(max(ldt_to_sbrt_interval_months, na.rm = TRUE), 1),
+    N = sum(!is.na(ldt_to_sbrt_interval_months))
+  ) %>%
+  mutate(
+    Group = "Total",
+    IQR = paste0("(", Q1, "–", Q3, ")"),
+    Range = paste0("(", Range_Low, "–", Range_High, ")"),
+    p_value = round(wilcox.test(ldt_to_sbrt_interval_months ~ Desc_Salv_Consol, data = model_set1)$p.value, 6)
+  ) %>%
+  select(Group, Median, IQR, Range, N, p_value)
+
+final_summary <- bind_rows(group_summary, total_summary)
+final_summary
+```
