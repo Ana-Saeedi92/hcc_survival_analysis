@@ -19,9 +19,9 @@ The analysis follows a structured clinical research workflow:
 
 
 ## code structure
-├── hcc_survival_analysis.R                          # streamlined script with main analyses
-├── hcc_workflow.Rmd                                 # full reproducible workflow
-├── hcc_workflow_report.pdf                          # knitted report with results and outputs
+hcc_survival_analysis.R      # streamlined script with main analyses
+hcc_workflow.Rmd             # full reproducible workflow
+hcc_workflow_report.pdf      # knitted report with results and outputs
 
 
 ## Data Availability
