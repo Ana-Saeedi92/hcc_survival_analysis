@@ -1,5 +1,5 @@
 # HCC Survival Analysis
-
+This project reflects real-world clinical data analysis workflows in oncology research.
 ## Overview
 This project demonstrates survival analysis methods in oncology, including Kaplan–Meier curves, RMST, and Cox regression.
 
