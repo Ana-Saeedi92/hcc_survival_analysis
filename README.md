@@ -1,18 +1,17 @@
-# HCC Survival Analysis
-This project reflects real-world clinical data analysis workflows in oncology research.
+# HCC Survival Analysis (R)
+
 ## Overview
-This project demonstrates survival analysis methods in oncology, including Kaplan–Meier curves, RMST, and Cox regression.
+This project presents a survival analysis workflow for hepatocellular carcinoma (HCC) patients undergoing SBRT treatment. It reflects a real-world clinical research pipeline, including data preprocessing, Kaplan–Meier estimation, and Cox regression modeling.
+
+## Objectives
+- Evaluate local control and overall survival
+- Compare treatment groups (Salvage vs CMT)
+- Identify prognostic factors using Cox models
 
 ## Methods
-- Kaplan–Meier estimation
-- Log-rank test
-- RMST
-- Cox proportional hazards model
+- Kaplan–Meier survival analysis
+- Log-rank tests
+- Cox proportional hazards models
+- Clinical data preprocessing
 
-## Data
-Simulated dataset used due to data privacy restrictions.
-
-## How to Run
-Open R and run:
-```r
-source("hcc_survival_analysis.R")
+## Project Structure
