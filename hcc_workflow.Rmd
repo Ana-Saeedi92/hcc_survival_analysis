@@ -146,11 +146,6 @@ var_labels <- c(
 chart_data <- set_variable_labels(hcc_data, !!!var_labels)
 ```
 
-## Optional CSV export
-
-```{r export-csv}
-write_csv(chart_data, "C:/Users/saeeda1/OneDrive - UMass Chan Medical School/Documents/independent study/cancer project/HCC_4_6_SASPrep.csv")
-```
 
 ## Recode factors
 
