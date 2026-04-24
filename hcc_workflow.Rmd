@@ -479,42 +479,7 @@ median_lc <- summary(fit_km)$table["median"]
 median_lc
 ```
 
-## Local control by treatment group
 
-```{r lc-km-group}
-surv_obj_full <- Surv(time = model_set1$time_lc_yr, event = model_set1$resp_fail)
-
-fit_km_full <- survfit(surv_obj_full ~ 1, data = model_set1, conf.type = "log-log")
-summary(fit_km_full, times = c(1, 2, 3, 4))
-
-fit_stratified <- survfit(Surv(time_lc_yr, resp_fail) ~ Desc_Salv_Consol, data = model_set1)
-summary(fit_stratified)
-
-plot_km <- ggsurvplot(
-  fit_stratified,
-  conf.int   = FALSE,
-  risk.table = TRUE,
-  pval       = TRUE,
-  xlab       = "Years from First Recurrence",
-  ylab       = "Local Control (%)",
-  title      = "Kaplan–Meier Plot (display truncated at 4 years)",
-  xlim       = c(0, 4),
-  break.time.by = 1,
-  legend.title  = "Group",
-  legend.labs   = c("Salvage", "CMT"),
-  ggtheme       = theme_minimal()
-)
-
-plot_km$plot <- plot_km$plot +
-  scale_x_continuous(limits = c(0, 4), breaks = 0:4) +
-  theme(
-    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
-    panel.background = element_blank(),
-    panel.grid       = element_blank()
-  )
-
-print(plot_km)
-```
 
 ## 4-year censored local control by group
 
